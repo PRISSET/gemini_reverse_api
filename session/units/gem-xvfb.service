@@ -1,0 +1,13 @@
+[Unit]
+Description=Virtual screen :7 for the Gemini browser
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=gemlogin
+ExecStart=/usr/bin/Xvfb :7 -screen 0 1920x1080x24 -nolisten tcp
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

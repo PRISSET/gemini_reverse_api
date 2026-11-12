@@ -1,0 +1,10 @@
+[Unit]
+Description=Check the Gemini session every 10 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=10min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

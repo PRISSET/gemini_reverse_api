@@ -1,0 +1,10 @@
+[Unit]
+Description=noVNC web client for the Gemini login screen (127.0.0.1:6080)
+Requires=gem-vnc.service
+After=gem-vnc.service
+
+[Service]
+User=gemlogin
+ExecStart=/usr/bin/websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5907
+Restart=always
+RestartSec=5

@@ -1,0 +1,11 @@
+[Unit]
+Description=VNC of screen :7 (localhost only, reach it through the SSH tunnel)
+Requires=gem-xvfb.service
+After=gem-xvfb.service
+
+[Service]
+User=gemlogin
+ExecStartPre=/bin/sleep 1
+ExecStart=/usr/bin/x11vnc -display :7 -localhost -rfbport 5907 -forever -shared -nopw -quiet
+Restart=always
+RestartSec=5

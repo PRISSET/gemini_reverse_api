@@ -1,0 +1,20 @@
+[project]
+name = "gemini-web-proxy"
+version = "0.1.0"
+description = "OpenAI-compatible proxy over the Gemini web app, driven by Google accounts"
+requires-python = ">=3.11"
+dependencies = [
+    "gemini-webapi==2.1.1",
+    "fastapi==0.162.5",
+    "uvicorn[standard]==0.54.0",
+]
+
+[project.scripts]
+gemini-proxy = "gemini_proxy.cli:main"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["gemini_proxy"]

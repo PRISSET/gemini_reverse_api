@@ -1,0 +1,21 @@
+[Unit]
+Description=Gemini web proxy (OpenAI-compatible, 127.0.0.1:3086)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hfnews
+WorkingDirectory=/opt/gemini-proxy
+EnvironmentFile=-/etc/gemini-proxy/env
+Environment=PROXY_PORT=3086
+Environment=ACCOUNTS_FILE=/etc/gemini-proxy/accounts.json
+Environment=GEMINI_TIMEOUT=450
+Environment=POOL_MAX_RETRIES=3
+ExecStart=/opt/gemini-proxy/.venv/bin/python -m uvicorn gemini_proxy.app:app --host 127.0.0.1 --port 3086 --no-access-log
+Restart=always
+RestartSec=5
+MemoryMax=400M
+
+[Install]
+WantedBy=multi-user.target

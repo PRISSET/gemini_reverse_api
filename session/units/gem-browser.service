@@ -1,0 +1,19 @@
+[Unit]
+Description=Chrome with the Gemini session (the session owner: it keeps the cookies fresh)
+After=gem-xvfb.service
+Requires=gem-xvfb.service
+
+[Service]
+User=gemlogin
+WorkingDirectory=/opt/gemini-proxy
+Environment=DISPLAY=:7
+Environment=GEMINI_BASE=/opt/gemini-proxy
+Environment=GEMINI_PROFILE=/opt/gemini-proxy/profile
+Environment=GEMINI_CDP_PORT=9334
+Environment=GEMINI_LOG_DIR=/var/log/gemini
+# The service already runs as the browser's user: no runuser needed.
+Environment=GEMINI_BROWSER_USER=
+ExecStart=/usr/bin/node /opt/gemini-proxy/gemacc.mjs browser
+Restart=always
+RestartSec=10
+MemoryMax=700M

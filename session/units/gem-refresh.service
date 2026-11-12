@@ -1,0 +1,15 @@
+[Unit]
+Description=Re-read the Gemini session cookies from the browser
+After=gem-browser.service
+Wants=gem-browser.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/gemini-proxy
+Environment=ACCOUNTS_FILE=/etc/gemini-proxy/accounts.json
+Environment=GEMINI_BASE=/opt/gemini-proxy
+Environment=GEMINI_PROFILE=/opt/gemini-proxy/profile
+Environment=GEMINI_CDP_PORT=9334
+Environment=GEMINI_LOG_DIR=/var/log/gemini
+ExecStart=/usr/bin/node /opt/gemini-proxy/gemacc.mjs refresh
+TimeoutStartSec=5min
