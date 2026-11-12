@@ -17,6 +17,7 @@ AI Studio — это не веб-приложение Gemini: у него сво
 | `session.py` | генерация через браузер: выбрать модель, задать промпт, нажать Run, забрать ответ |
 | `models.py` | выбор модели по имени среди тех, что есть у аккаунта |
 | `cookies.py` | куки аккаунта — из браузера, live |
+| `openai.py` | разбор сообщений OpenAI: текст в промпт, картинки в файлы |
 | `server.py` | OpenAI-совместимый API (`/v1/chat/completions`, `/v1/models`, `/health`) |
 | `cli.py` | `check`, `ask`, `serve` |
 
@@ -158,6 +159,87 @@ curl http://127.0.0.1:3087/v1/chat/completions \
 | `AISTUDIO_DEFAULT_MODEL` | `gemini-flash` | модель, когда вызывающий не назвал |
 | `AISTUDIO_TIMEOUT` | `180` | сколько ждать ответа |
 | `AISTUDIO_PORT` | `3087` | порт серверного режима |
+
+---
+
+## Несколько аккаунтов
+
+Да, поддерживается. В одном профиле Chrome может быть несколько залогиненных Google-аккаунтов
+(мультилогин), и приложение различает их индексом в пути: `gemini.google.com/u/0/…`,
+`/u/1/…`. У AI Studio так же — вкладка открывается по адресу
+`https://aistudio.google.com/u/N/prompts/new_chat?model=…`, и N выбирает аккаунт.
+
+Куки при этом общие для всех аккаунтов (один cookie jar на профиль), так что подписи
+SAPISIDHASH годятся для любого из них.
+
+Как добавить второй аккаунт локально:
+
+```bash
+# 1. в браузере с профилем прокси: меню профиля → добавить аккаунт
+GEMINI_BROWSER_USER= node session/gemacc.mjs browser
+# (откроется Chrome, войдите вторым аккаунтом)
+
+# 2. собрать аккаунты и записать индексы
+ACCOUNTS_FILE=accounts.json node session/gemacc.mjs refresh
+```
+
+`gemacc.mjs` сам обходит индексы `/u/N/` и записывает найденные аккаунты в `accounts.json`
+с их `authuser`.
+
+Кто отвечает на запрос:
+
+| Bearer | Кто обслуживает |
+| --- | --- |
+| (нет) | аккаунты по кругу |
+| `a2` | аккаунт с id `a2` |
+| `free@gmail.com` | аккаунт с такой почтой |
+| `chat` | аккаунт с такой меткой |
+
+```bash
+# по кругу
+curl http://127.0.0.1:3087/v1/chat/completions -d '…'
+# конкретный аккаунт
+curl http://127.0.0.1:3087/v1/chat/completions -H 'Authorization: Bearer a2' -d '…'
+```
+
+Вкладка заводится на каждую пару «аккаунт + модель» и живёт между запросами.
+
+---
+
+## Картинки
+
+Да, умеет. Формат как у OpenAI — картинка в `image_url` отдельной частью сообщения:
+
+```bash
+python3 - <<'PY' > /tmp/req.json
+import base64, json
+data = base64.b64encode(open("photo.jpg", "rb").read()).decode()
+print(json.dumps({"model": "gemini-3.8-flash", "messages": [{"role": "user", "content": [
+    {"type": "text", "text": "Что на картинке?"},
+    {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + data}}]}]}))
+PY
+
+curl http://127.0.0.1:3087/v1/chat/completions \
+  -H 'Content-Type: application/json' -d @/tmp/req.json
+```
+
+```
+{"choices":[{"message":{"role":"assistant","content":"GEMINI 42 TEST"}}]}
+```
+
+Как это устроено: картинка пишется во временный файл, файл подставляется в
+`<input type="file">` страницы через CDP (`DOM.setFileInputFiles`), дальше страница сама
+грузит файл и отправляет его модели вместе с промптом. Модель видит картинку так же, как
+человек в интерфейсе.
+
+Из командной строки:
+
+```bash
+python -m aistudio ask "Что на картинке?" gemini-3.8-flash photo.jpg
+```
+
+Ограничения: файлы отправляются один за другим, каждый ждёт загрузки; ограничение на
+размер и тип задаёт сам AI Studio; в одном запросе разумно держать одну-две картинки.
 
 ---
 

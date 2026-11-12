@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 
 from . import accounts as accounts_mod
@@ -23,6 +24,9 @@ async def check() -> int:
         print(f"нет аккаунтов в {CFG.accounts_file}")
         return 1
     print(f"аккаунт: {account.email or account.id} ({account.id}, u/{account.authuser or '0'})")
+    for other in accounts_mod.load():
+        if other.key != account.key:
+            print(f"  ещё аккаунт: {other.email or other.id} (u/{other.authuser or '0'})")
     async with Cdp(CFG.cdp_host, CFG.cdp_port) as cdp:
         jar = await cookies_mod.jar(cdp)
     try:
@@ -40,7 +44,7 @@ async def check() -> int:
     return 0
 
 
-async def ask(prompt: str, model: str = "") -> int:
+async def ask(prompt: str, model: str = "", files: list[str] | None = None) -> int:
     account = accounts_mod.pick()
     if account is None:
         print(f"нет аккаунтов в {CFG.accounts_file}")
@@ -52,7 +56,8 @@ async def ask(prompt: str, model: str = "") -> int:
         print(f"модель: {chosen}")
         pool = StudioPool(cdp)
         try:
-            answer = await pool.tab(chosen).ask(prompt, timeout=CFG.timeout)
+            answer = await pool.tab(chosen, account.authuser).ask(
+                prompt, timeout=CFG.timeout, files=files)
         finally:
             await pool.close()
     print(answer)
@@ -75,7 +80,8 @@ def main() -> int:
     if argv[0] == "ask":
         prompt = argv[1] if len(argv) > 1 else "Привет"
         model = argv[2] if len(argv) > 2 else ""
-        return asyncio.run(ask(prompt, model))
+        files = [f for f in argv[3:] if os.path.exists(f)]
+        return asyncio.run(ask(prompt, model, files or None))
     if argv[0] == "serve":
         return serve()
     print(__doc__)

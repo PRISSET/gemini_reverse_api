@@ -5,6 +5,7 @@ the cookies fresh.
 """
 from __future__ import annotations
 
+import itertools
 import json
 from dataclasses import dataclass
 
@@ -58,3 +59,14 @@ def pick(wanted: str = "") -> Account | None:
         if a.id.lower() == wanted or a.email.lower() == wanted or a.label.lower() == wanted:
             return a
     return accounts[0]
+
+
+_turn = itertools.count()
+
+
+def next_account() -> Account | None:
+    """The next account in turn: the requests spread over the accounts."""
+    accounts = load()
+    if not accounts:
+        return None
+    return accounts[next(_turn) % len(accounts)]

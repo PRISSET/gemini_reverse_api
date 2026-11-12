@@ -12,7 +12,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import tempfile
 import time
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -20,6 +23,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from . import accounts as accounts_mod
 from . import cookies as cookies_mod
 from . import models as models_mod
+from . import openai as openai_mod
 from . import rpc
 from .cdp import Cdp
 from .config import CFG
@@ -84,15 +88,19 @@ async def chat_completions(request: Request):
         return JSONResponse({"error": {"message": "no messages", "type": "invalid_request_error"}},
                             status_code=400)
 
-    account = accounts_mod.pick()
+    # The bearer names the account (id, e-mail or label); without one the accounts
+    # are used in turn.
+    bearer = request.headers.get("authorization", "").strip()
+    if bearer.lower().startswith("bearer "):
+        bearer = bearer[7:].strip()
+    account = accounts_mod.pick(bearer) if bearer else accounts_mod.next_account()
     if account is None:
         return JSONResponse({"error": {"message": "нет аккаунтов", "type": "no_account"}},
                             status_code=503)
 
-    prompt = "\n\n".join(
-        str(m.get("content", "")) for m in messages
-        if isinstance(m, dict) and m.get("role") in ("system", "user")
-    )
+    prompt = openai_mod.prompt_of(messages)
+    pictures = openai_mod.images_of(messages)
+
     cdp, pool = await browser()
     jar = await cookies_mod.jar(cdp)
     try:
@@ -102,14 +110,29 @@ async def chat_completions(request: Request):
     model = models_mod.resolve(listed, str(body.get("model") or CFG.default_model))
 
     assert pool is not None
-    # One tab per model, but a tab answers one question at a time.
+    # One tab per account and model, but a tab answers one question at a time.
     async with _lock:
+        files: list[str] = []
         try:
-            answer = await pool.tab(model or "").ask(prompt, timeout=CFG.timeout)
+            for name, data in pictures:
+                path = tempfile.NamedTemporaryFile(prefix="aistudio-", suffix=Path(name).suffix,
+                                                   delete=False)
+                path.write(data)
+                path.close()
+                files.append(path.name)
+            answer = await pool.tab(model or "", account.authuser).ask(
+                prompt, timeout=CFG.timeout, files=files or None
+            )
         except Exception as e:  # noqa: BLE001
             log.warning("no answer: %s", e)
             return JSONResponse({"error": {"message": str(e), "type": "upstream_error"}},
                                 status_code=502)
+        finally:
+            for path in files:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
 
     out = {
         "id": f"chatcmpl-{int(time.time() * 1000):x}",

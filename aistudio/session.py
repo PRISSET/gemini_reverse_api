@@ -19,6 +19,7 @@ from .cdp import Cdp
 log = logging.getLogger("aistudio.session")
 
 BASE = "https://aistudio.google.com/prompts/new_chat"
+U_PATH = "https://aistudio.google.com/u/{n}/prompts/new_chat"
 
 # The prompt field, the Run button and the answer, all as JavaScript.
 FILL = """(function(){
@@ -75,14 +76,33 @@ def pick_answer(turns: list[str]) -> str:
     return ""
 
 
-class Studio:
-    """One AI Studio tab."""
+# How many files are attached to the prompt right now.
+ATTACHED = """(function(){
+  var n = 0;
+  var all = document.querySelectorAll('img,[class*="chip"],[class*="attachment"],[class*="preview"]');
+  for (var i = 0; i < all.length; i++) {
+    var el = all[i];
+    if ((el.getAttribute('src') || '').indexOf('blob:') === 0) n++;
+    else if (/attachment|chip|preview/i.test(String(el.className || ''))) n++;
+  }
+  return n;
+})()"""
 
-    def __init__(self, cdp: Cdp, model: str):
+
+class Studio:
+    """One AI Studio tab: one account, one model."""
+
+    def __init__(self, cdp: Cdp, model: str, authuser: str = ""):
         self.cdp = cdp
         self.model = model
+        self.authuser = str(authuser or "")
         self.session: str | None = None
-        self.url = f"{BASE}?model={model}"
+        self.url = self._url()
+
+    def _url(self) -> str:
+        # The index of the Google account in the browser (multi-login).
+        base = U_PATH.format(n=self.authuser) if self.authuser else BASE
+        return f"{base}?model={self.model}"
 
     async def open(self, timeout: float = 60) -> None:
         """The tab, loaded and ready."""
@@ -106,11 +126,39 @@ class Studio:
             await self.cdp.close_tab(self.session)
             self.session = None
 
-    async def ask(self, prompt: str, timeout: float = 180) -> str:
-        """One answer."""
+    async def attach(self, files: list[str]) -> None:
+        """Put the files into the prompt: the page uploads them itself."""
+        if not files:
+            return
+        assert self.session is not None
+        before = await self.cdp.evaluate(self.session, ATTACHED) or 0
+        doc = await self.cdp.send("DOM.getDocument", {"depth": -1}, self.session)
+        node = await self.cdp.send(
+            "DOM.querySelector",
+            {"nodeId": doc["root"]["nodeId"], "selector": "input[type=file]"},
+            self.session,
+        )
+        node_id = node.get("nodeId", 0)
+        if not node_id:
+            raise RuntimeError("AI Studio: в странице нет поля для файла")
+        await self.cdp.send("DOM.setFileInputFiles", {"files": files, "nodeId": node_id}, self.session)
+        # The upload takes a moment: wait until the file shows up in the prompt.
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            await asyncio.sleep(1.0)
+            now = await self.cdp.evaluate(self.session, ATTACHED) or 0
+            if now > before:
+                return
+        raise TimeoutError("AI Studio: файл не загрузился")
+
+    async def ask(self, prompt: str, timeout: float = 180, files: list[str] | None = None) -> str:
+        """One answer, with the files attached."""
         await self.open()
         assert self.session is not None
         before = len(await self._turns())
+
+        if files:
+            await self.attach(files)
 
         filled = await self.cdp.evaluate(self.session, FILL % _js_string(prompt))
         if filled != "ок":
@@ -151,18 +199,19 @@ def _js_string(value: str) -> str:
 
 
 class StudioPool:
-    """One tab per model, reused between the requests."""
+    """One tab per account and model, reused between the requests."""
 
     def __init__(self, cdp: Cdp):
         self.cdp = cdp
-        self._tabs: dict[str, Studio] = {}
+        self._tabs: dict[tuple[str, str], Studio] = {}
 
-    def tab(self, model: str) -> Studio:
-        """The tab of this model, created on demand."""
-        tab = self._tabs.get(model)
+    def tab(self, model: str, authuser: str = "") -> Studio:
+        """The tab of this account and model, created on demand."""
+        key = (str(authuser or ""), model)
+        tab = self._tabs.get(key)
         if tab is None:
-            tab = Studio(self.cdp, model)
-            self._tabs[model] = tab
+            tab = Studio(self.cdp, model, authuser)
+            self._tabs[key] = tab
         return tab
 
     async def close(self) -> None:
