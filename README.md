@@ -321,6 +321,19 @@ bash session/login.sh        # войти в аккаунт через noVNC
 | `GEMINI_ACCOUNTS` | `4` | сколько индексов u/N проверять |
 | `GEMINI_LOG_DIR` | `/var/log/gemini` | журнал браузера |
 
+## AI Studio
+
+Отдельный модуль [`aistudio/`](aistudio/README.md) — тот же reverse, но для
+**https://aistudio.google.com/**. У AI Studio другой протокол (gapi RPC вместо
+batchexecute) и 41 модель в списке аккаунта; генерация идёт через страницу, потому что
+запрос подписывается блобом, который умеет делать только JavaScript самой страницы.
+
+```bash
+python -m aistudio check          # модели и тариф
+python -m aistudio ask "привет"   # один ответ
+python -m aistudio serve          # OpenAI-совместимый API на :3087
+```
+
 ## Ограничения и риски
 
 - Это **неофициальный** путь: используется внутренний протокол веб-приложения. Google
