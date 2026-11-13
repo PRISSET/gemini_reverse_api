@@ -103,7 +103,7 @@ const AUTH_COOKIES = [
 ];
 
 /**
- * GET https://gemini.google.com/u/N/app with the cookie jar: is that account signed in?
+ * GET gemini.google.com/app (u/0) or /u/N/app with the cookie jar: is that account signed in?
  *
  * A signed-in answer carries a lot of Set-Cookie headers, and Node's default limit is 16 KB:
  * without a bigger one the answer is a "Headers Overflow Error".
@@ -116,7 +116,8 @@ function probeAccount(authuser, jar) {
     const req = https.request(
       {
         host: HOST,
-        path: `/u/${authuser}/app`,
+        // Google now redirects /u/0/app to /app: the default account answers only there.
+        path: Number(authuser) === 0 ? '/app' : `/u/${authuser}/app`,
         method: 'GET',
         maxHeaderSize: 256 * 1024,
         headers: {
@@ -207,13 +208,22 @@ function startChrome() {
   return spawn(browserArgs[0], browserArgs.slice(1), { stdio: ['ignore', out, out], env });
 }
 
-/** The cookie jar of the running browser: every google.com cookie it holds. */
+/**
+ * The cookie jar the browser would send to gemini.google.com.
+ *
+ * Only .google.com and gemini.google.com cookies: accounts.google.com and the other
+ * subdomains hold cookies with the same names (OSID, __Secure-OSID, …) and, merged by
+ * name, they overwrite the right ones — Google then answers with a redirect to the login.
+ * When a name exists on both, the narrower gemini.google.com cookie wins, as in the browser.
+ */
 async function harvest(cdp) {
   const { cookies } = await cdp.send('Storage.getCookies');
   const jar = {};
   for (const c of cookies || []) {
     const domain = (c.domain || '').replace(/^\./, '');
-    if (domain !== 'google.com' && !domain.endsWith('.google.com')) continue;
+    if (domain !== 'google.com' && domain !== HOST) continue;
+    if ((c.path || '/') !== '/') continue;
+    if (domain !== HOST && c.name in jar) continue;
     jar[c.name] = c.value;
   }
   return jar;
