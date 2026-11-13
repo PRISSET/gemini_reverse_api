@@ -96,12 +96,6 @@ const writeStamp = () => {
   }
 };
 
-/** The cookies that identify the session. The full jar is too long for a header. */
-const AUTH_COOKIES = [
-  '__Secure-1PSID', '__Secure-1PSIDTS', '__Secure-3PSID', '__Secure-3PSIDTS',
-  '__Host-3PSID', '__Host-1PSID', 'SID', 'HSID', 'SSID', 'APISID', 'SAPISID', 'NID', 'OSID',
-];
-
 /**
  * GET gemini.google.com/app (u/0) or /u/N/app with the cookie jar: is that account signed in?
  *
@@ -110,8 +104,10 @@ const AUTH_COOKIES = [
  */
 function probeAccount(authuser, jar) {
   return new Promise((resolve) => {
-    const cookie = AUTH_COOKIES.filter((k) => jar[k])
-      .map((k) => `${k}=${jar[k]}`)
+    // The whole jar harvest() keeps (~3 KB): with only the auth subset Google sees a
+    // bot and redirects to google.com/sorry, which reads as "not signed in".
+    const cookie = Object.entries(jar)
+      .map(([k, v]) => `${k}=${v}`)
       .join('; ');
     const req = https.request(
       {
