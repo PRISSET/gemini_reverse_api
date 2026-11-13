@@ -192,6 +192,13 @@ class Pool:
                             return model
         return None
 
+    def _picked(self, slot: Slot, name: str | None) -> Any:
+        """The model for this request, logged: the requested name can resolve to another one."""
+        model = self._resolve(slot, name)
+        picked = getattr(model, "model_name", None) or "account default"
+        log.info("%s: model %s → %s", slot.key, name or "-", picked)
+        return model
+
     # ---------------------------------------------------------------- requests
     def _ordered(self, bearer: str = "pool") -> list[Slot]:
         """The slots to try: the ones with quota first, the one that served last last."""
@@ -241,7 +248,7 @@ class Pool:
             async with slot.lock:
                 try:
                     client = await self._client_for(slot)
-                    out = await client.generate_content(prompt, model=self._resolve(slot, model))
+                    out = await client.generate_content(prompt, model=self._picked(slot, model))
                     text = getattr(out, "text", "") or ""
                     if not text.strip():
                         raise APIError("empty answer")
@@ -285,7 +292,7 @@ class Pool:
                 try:
                     client = await self._client_for(slot)
                     async for out in client.generate_content_stream(
-                        prompt, model=self._resolve(slot, model)
+                        prompt, model=self._picked(slot, model)
                     ):
                         delta = getattr(out, "text_delta", "") or ""
                         if delta:
