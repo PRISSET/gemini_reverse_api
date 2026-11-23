@@ -1,0 +1,14 @@
+[Unit]
+Description=Hand the Gemini session from the browser to the proxy after boot, probe once
+After=gemini-proxy.service gem-browser.service network-online.target
+Wants=gem-browser.service network-online.target
+Requires=gemini-proxy.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/gemini-proxy/env
+ExecStart=/usr/local/bin/gem-session-warm
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

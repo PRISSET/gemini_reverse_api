@@ -60,6 +60,9 @@ def _window(data: dict | None) -> dict | None:
     }
 
 
+# How often a slot that fell back to a guest session retries the browser hand-over.
+GUEST_RETRY_S = 60.0
+
 # Google renamed the web models (2026-11): the old names still arrive from callers.
 LEGACY_MODELS = {
     "gemini-pro": "gemini-carbon",
@@ -85,6 +88,8 @@ class Slot:
     limited: int = 0
     # Google answered, but as a signed-out guest: the browser session is gone.
     guest: bool = False
+    # When the slot last fell back to a guest session (the browser hand-over failed).
+    guest_at: float = 0.0
     # When the cookie jar was last taken from the browser (0 = not from the browser).
     cookies_at: float = 0.0
     # The u/N where the browser shows this account now (Google renumbers them).
@@ -168,7 +173,13 @@ class Pool:
     # ---------------------------------------------------------------- clients
     async def _client_for(self, slot: Slot) -> GeminiClient:
         if slot.client is not None:
-            return slot.client
+            # A guest client means the browser could not hand the session over (down, or the
+            # account signed out). Try the browser again now and then instead of answering as a
+            # guest until the next restart - but not on every request.
+            if not (slot.guest and time.time() - slot.guest_at > GUEST_RETRY_S):
+                return slot.client
+            log.info("account %s is a guest, retrying the browser session", slot.key)
+            await self._drop_client(slot)
         account = slot.account
         authuser.apply_authuser(account.authuser)
         authuser.install_full_jar(lambda: slot.account.cookies)
@@ -190,6 +201,8 @@ class Pool:
         slot.client = client
         status = getattr(client, "account_status", None)
         slot.guest = getattr(status, "name", "") == "UNAUTHENTICATED"
+        if slot.guest:
+            slot.guest_at = time.time()
         try:
             slot.models = client.list_models() or []
         except Exception as e:  # noqa: BLE001

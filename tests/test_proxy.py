@@ -242,3 +242,48 @@ def test_the_pool_passes_the_images_on(monkeypatch):
     pool.reload = lambda: pool._slots.__setitem__(slice(None), [Slot(account=account)])
     asyncio.run(pool.generate("вопрос", "gemini-flash", files=[b"img"]))
     assert len(seen["files"]) == 1
+
+
+def test_guest_slot_retries_the_browser(monkeypatch):
+    """A slot stuck as a guest drops its client after GUEST_RETRY_S and reconnects."""
+    import asyncio
+    import time as _time
+
+    from gemini_proxy import pool as pool_mod
+    from gemini_proxy.accounts import Account
+
+    slot = pool_mod.Slot(account=Account(id="a1", authuser="0", email="a@x", label="pro", cookies={}))
+    old = object()
+    slot.client, slot.guest = old, True
+    p = pool_mod.Pool()
+    dropped = []
+
+    async def fake_drop(s):
+        dropped.append(s.key)
+        s.client = None
+
+    monkeypatch.setattr(p, "_drop_client", fake_drop)
+    # Fresh guest: the cached client is kept.
+    slot.guest_at = _time.time()
+    assert asyncio.run(p._client_for(slot)) is old and not dropped
+
+    # Stale guest: the client is dropped and a new connect is attempted.
+    slot.guest_at = _time.time() - pool_mod.GUEST_RETRY_S - 1
+
+    class Boom(Exception):
+        pass
+
+    async def fake_connect(*a, **k):
+        raise Boom()
+
+    monkeypatch.setattr(pool_mod.browser, "connect", fake_connect)
+
+    async def fake_init(self, *a, **k):
+        raise Boom()
+
+    monkeypatch.setattr(pool_mod.GeminiClient, "init", fake_init)
+    try:
+        asyncio.run(p._client_for(slot))
+    except Boom:
+        pass
+    assert dropped == [slot.key]

@@ -1,0 +1,14 @@
+#!/bin/sh
+# After boot: wait for the browser and the proxy, let the proxy take the Gemini session
+# from the browser (/admin/check), then send one tiny request so tier and credits show in
+# the admin panel right away. The browser keeps running: the proxy reconnects from it.
+set -u
+for i in $(seq 1 60); do curl -fs -o /dev/null http://127.0.0.1:9334/json/version && break; sleep 2; done
+for i in $(seq 1 30); do curl -fs -o /dev/null http://127.0.0.1:3086/v1/models && break; sleep 2; done
+sleep 20
+curl -s -m 240 -X POST http://127.0.0.1:3086/admin/check -H "x-admin-key: ${PROXY_ADMIN_KEY}" \
+  | python3 -c "import json,sys; print(\"accounts:\", \" \".join(a[\"label\"]+\"=\"+a[\"status\"] for a in json.load(sys.stdin)[\"accounts\"]))" 2>&1
+curl -s -m 150 http://127.0.0.1:3086/v1/chat/completions -H "Authorization: Bearer pool" \
+  -H "Content-Type: application/json" \
+  -d "{\"model\":\"gemini-4-hydrogen\",\"messages\":[{\"role\":\"user\",\"content\":\"Ответь одним словом: ок\"}]}" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print(\"probe:\", \"ok\" if d.get(\"choices\") else d)" 2>&1

@@ -13,7 +13,13 @@ Environment=GEMINI_CDP_PORT=9334
 Environment=GEMINI_LOG_DIR=/var/log/gemini
 # The service already runs as the browser's user: no runuser needed.
 Environment=GEMINI_BROWSER_USER=
+Environment=GEMINI_PARK=1
 ExecStart=/usr/bin/node /opt/gemini-proxy/gemacc.mjs browser
 Restart=always
 RestartSec=10
 MemoryMax=700M
+# A safety net: the browser only keeps the cookies fresh and must not starve the site.
+CPUQuota=30%
+
+[Install]
+WantedBy=multi-user.target
