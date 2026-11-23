@@ -271,7 +271,9 @@ class Pool:
         by_label = [s for s in slots if (s.account.label or "").lower() == wanted]
         if by_label:
             return by_label
-        return []
+        # A removed or unknown account must not fail the request: the pool answers it.
+        log.info("no account %r, using the pool", wanted)
+        return slots
 
     async def generate(self, prompt: str, model: str | None = None,
                         bearer: str = "pool") -> tuple[str, Slot]:
