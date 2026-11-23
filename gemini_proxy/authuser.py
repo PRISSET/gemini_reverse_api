@@ -52,6 +52,11 @@ def apply_authuser(index: str | int | None) -> None:
     _current = n
 
 
+def current() -> str | None:
+    """The account index the endpoints point at now."""
+    return _current
+
+
 def install_full_jar(jar_getter) -> None:
     """Make the init request use the FULL google.com cookie jar.
 

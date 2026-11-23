@@ -23,6 +23,7 @@ from gemini_webapi.exceptions import (
 
 from . import accounts as accounts_mod
 from . import authuser
+from . import browser
 from .config import CFG
 
 log = logging.getLogger("pool")
@@ -40,6 +41,16 @@ def _window(data: dict | None) -> dict | None:
     }
 
 
+# Google renamed the web models (2026-11): the old names still arrive from callers.
+LEGACY_MODELS = {
+    "gemini-pro": "gemini-carbon",
+    "gemini-flash": "gemini-4-hydrogen",
+    "gemini-flash-lite": "gemini-4-hydrogen",
+    "gemini-thinking": "gemini-neon",
+    "gemini-auto": "gemini-авто",
+}
+
+
 @dataclass
 class Slot:
     account: accounts_mod.Account
@@ -53,6 +64,8 @@ class Slot:
     ok: int = 0
     failed: int = 0
     limited: int = 0
+    # Google answered, but as a signed-out guest: the browser session is gone.
+    guest: bool = False
     # One request at a time per account: the web session keeps a conversation state, and
     # two parallel calls on one account mix them up.
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -82,6 +95,8 @@ class Slot:
     def status(self) -> str:
         if self.cooldown_until > time.time():
             return "cooldown"
+        if self.guest:
+            return "guest"
         if self.last_error and not self.last_ok:
             return "dead"
         if self.last_ok:
@@ -135,9 +150,17 @@ class Pool:
         authuser.apply_authuser(account.authuser)
         authuser.install_full_jar(lambda: slot.account.cookies)
         client = GeminiClient(account.psid, account.psidts, proxy=CFG.proxy or None)
-        # The browser owns the session: rotating the cookies here would log it out.
-        await client.init(timeout=CFG.init_timeout, auto_refresh=False)
+        try:
+            # Google blocks the /app page and the RPCs for scripts on this IP: the token
+            # comes from the browser tab, the answers still go direct.
+            await browser.connect(client, str(account.authuser or "0"), CFG.timeout)
+        except Exception as e:  # noqa: BLE001
+            log.warning("browser session for %s unavailable (%s), direct init", slot.key, e)
+            # The browser owns the session: rotating the cookies here would log it out.
+            await client.init(timeout=CFG.init_timeout, auto_refresh=False)
         slot.client = client
+        status = getattr(client, "account_status", None)
+        slot.guest = getattr(status, "name", "") == "UNAUTHENTICATED"
         try:
             slot.models = client.list_models() or []
         except Exception as e:  # noqa: BLE001
@@ -168,7 +191,7 @@ class Pool:
             return None
         if name:
             try:
-                return client.resolve_model(name)
+                return client.resolve_model(LEGACY_MODELS.get(name.lower(), name))
             except Exception:  # noqa: BLE001
                 pass
             wanted = name.lower()

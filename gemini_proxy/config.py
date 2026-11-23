@@ -31,10 +31,10 @@ class Config:
 
     # The model used when the caller does not name one. The web app resolves model names
     # per account, so an unknown name falls back to the account's own default.
-    default_model: str = _env("GEMINI_DEFAULT_MODEL", "gemini-flash")
+    default_model: str = _env("GEMINI_DEFAULT_MODEL", "gemini-4-hydrogen")
     models: list[str] = field(default_factory=lambda: [
         m.strip() for m in _env("GEMINI_MODELS", (
-            "gemini-pro,gemini-flash,gemini-flash-lite,gemini-auto"
+            "gemini-carbon,gemini-4-hydrogen,gemini-neon,gemini-auto"
         )).split(",") if m.strip()
     ])
 

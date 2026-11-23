@@ -1,0 +1,72 @@
+[
+ {
+  "model_id": "8c46e95b1a07cecc",
+  "model_name": "gemini-авто",
+  "display_name": "Авто",
+  "description": "Адаптируется к вашим потребностям",
+  "capacity": 2,
+  "capacity_field": 12,
+  "model_number": 6,
+  "is_available": true,
+  "aliases": [
+   "8c46e95b1a07cecc",
+   "gemini-авто",
+   "авто"
+  ]
+ },
+ {
+  "model_id": "56fdd199312815e2",
+  "model_name": "gemini-4-hydrogen",
+  "display_name": "Повседневные дела",
+  "description": "4 Hydrogen",
+  "capacity": 2,
+  "capacity_field": 12,
+  "model_number": 1,
+  "is_available": true,
+  "aliases": [
+   "4 hydrogen",
+   "4-hydrogen",
+   "56fdd199312815e2",
+   "gemini-4-hydrogen",
+   "gemini-повседневные-дела",
+   "повседневные дела",
+   "повседневные-дела"
+  ]
+ },
+ {
+  "model_id": "e6fa609c3fa255c0",
+  "model_name": "gemini-neon",
+  "display_name": "Глубокий анализ",
+  "description": "4 Neon",
+  "capacity": 2,
+  "capacity_field": 12,
+  "model_number": 3,
+  "is_available": true,
+  "aliases": [
+   "e6fa609c3fa255c0",
+   "gemini-neon",
+   "gemini-глубокий-анализ",
+   "neon",
+   "глубокий анализ",
+   "глубокий-анализ"
+  ]
+ },
+ {
+  "model_id": "95a4c0abcba24364",
+  "model_name": "gemini-carbon",
+  "display_name": "Код и сложные задачи",
+  "description": "4 Carbon",
+  "capacity": 2,
+  "capacity_field": 12,
+  "model_number": 8,
+  "is_available": true,
+  "aliases": [
+   "95a4c0abcba24364",
+   "carbon",
+   "gemini-carbon",
+   "gemini-код-и-сложные-задачи",
+   "код и сложные задачи",
+   "код-и-сложные-задачи"
+  ]
+ }
+]
