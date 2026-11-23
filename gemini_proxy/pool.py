@@ -66,6 +66,8 @@ class Slot:
     limited: int = 0
     # Google answered, but as a signed-out guest: the browser session is gone.
     guest: bool = False
+    # When the cookie jar was last taken from the browser (0 = not from the browser).
+    cookies_at: float = 0.0
     # One request at a time per account: the web session keeps a conversation state, and
     # two parallel calls on one account mix them up.
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -155,6 +157,7 @@ class Pool:
             # comes from the browser tab, the answers still go direct.
             await browser.connect(client, str(account.authuser or "0"), CFG.timeout,
                                   account.email)
+            slot.cookies_at = time.time()
         except Exception as e:  # noqa: BLE001
             log.warning("browser session for %s unavailable (%s), direct init", slot.key, e)
             # The browser owns the session: rotating the cookies here would log it out.

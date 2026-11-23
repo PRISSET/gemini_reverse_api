@@ -180,7 +180,8 @@ def _account_view(slot) -> dict:
         "tier": quota.get("tier"),
         "models": [getattr(m, "model_name", str(m)) for m in slot.models],
         "status": slot.status(),
-        "cookiesAt": account.updated_at or None,
+        # The browser jar the proxy took at connect; the accounts file only as a fallback.
+        "cookiesAt": _iso(slot.cookies_at) if slot.cookies_at else (account.updated_at or None),
         "lastOk": _iso(slot.last_ok),
         "lastError": (
             {"at": _iso(slot.last_error_at), "message": slot.last_error} if slot.last_error else None
