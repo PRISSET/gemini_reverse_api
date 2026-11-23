@@ -96,7 +96,7 @@ async def _account_tab(n: str) -> str:
 
 _WIZ = ("JSON.stringify(window.WIZ_global_data ? {a: WIZ_global_data.SNlM0e, "
         "b: WIZ_global_data.cfb2h, s: WIZ_global_data.FdrFJe, l: WIZ_global_data.TuX5cc, "
-        "p: WIZ_global_data.qKIAYe} : {})")
+        "p: WIZ_global_data.qKIAYe, e: WIZ_global_data.oPEP7c} : {})")
 
 
 async def page_tokens(n: str) -> dict:
@@ -114,7 +114,7 @@ async def page_tokens(n: str) -> dict:
     raise AuthError(f"u/{n}: the tab has no signed-in Gemini page")
 
 
-async def connect(client, n: str, timeout: float) -> None:  # noqa: ANN001
+async def connect(client, n: str, timeout: float, email: str = "") -> None:  # noqa: ANN001
     """Make `client` ready from the browser without GeminiClient.init().
 
     init() fetches the /app page and runs batchexecute RPCs, and Google answers both with
@@ -123,6 +123,11 @@ async def connect(client, n: str, timeout: float) -> None:  # noqa: ANN001
     the way (activity sync) fail quietly as before. No model list: the account default runs.
     """
     w = await page_tokens(n)
+    # Without account u/N in the browser, Google sends /u/N/app to u/0: that token belongs
+    # to another account, and the slot would silently answer (and spend) as that one.
+    got = (w.get("e") or "").lower()
+    if email and got and got != email.lower():
+        raise AuthError(f"u/{n} is not signed in in the browser: its tab shows another account")
     session = AsyncSession(impersonate="chrome", proxy=CFG.proxy or None, timeout=timeout)
     for c in await browser_cookies():
         session.cookies.set(c["name"], c["value"], domain=c["domain"], path=c.get("path") or "/")

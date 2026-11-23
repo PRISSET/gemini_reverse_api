@@ -13,6 +13,7 @@ would send.
 from __future__ import annotations
 
 import sys
+from contextvars import ContextVar
 
 import gemini_webapi.client  # noqa: F401  (make sure the module is imported)
 import gemini_webapi.utils.get_access_token  # noqa: F401
@@ -25,36 +26,51 @@ _client = sys.modules["gemini_webapi.client"]
 _gat = sys.modules["gemini_webapi.utils.get_access_token"]
 _rot = sys.modules["gemini_webapi.utils.rotate_1psidts"]
 
-_current: str | None = None
+# The account of the running request. A ContextVar, not a global: every asyncio task has its
+# own copy, so two accounts answering at once cannot send each other's requests to the wrong
+# /u/N/ path (a global swap did exactly that).
+_account: ContextVar[str | None] = ContextVar("gemini_authuser", default=None)
 _jar_installed = False
 
 
+def _prefix() -> str:
+    return f"https://gemini.google.com/u/{_account.get() or '0'}"
+
+
+class _EndpointMeta(type):
+    """Endpoint URLs computed per request from the current task's account."""
+
+    @property
+    def INIT(cls) -> str:  # noqa: N802
+        return f"{_prefix()}/app"
+
+    @property
+    def GENERATE(cls) -> str:  # noqa: N802
+        return f"{_prefix()}/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
+
+    @property
+    def BATCH_EXEC(cls) -> str:  # noqa: N802
+        return f"{_prefix()}/_/BardChatUi/data/batchexecute"
+
+
+class _EndpointShim(metaclass=_EndpointMeta):
+    GOOGLE = str(_E.GOOGLE)
+    ROTATE_COOKIES = str(_E.ROTATE_COOKIES)
+    UPLOAD = str(_E.UPLOAD)
+
+
+for _mod in (_client, _gat, _rot):
+    _mod.Endpoint = _EndpointShim
+
+
 def apply_authuser(index: str | int | None) -> None:
-    """Point gemini_webapi at the Google account `index` (None = the default, u/0)."""
-    global _current
-    if index is None or str(index) == "":
-        return
-    n = str(index)
-    if _current == n:
-        return
-    prefix = f"https://gemini.google.com/u/{n}"
-
-    class _EndpointShim:
-        GOOGLE = str(_E.GOOGLE)
-        INIT = f"{prefix}/app"
-        GENERATE = f"{prefix}/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
-        ROTATE_COOKIES = str(_E.ROTATE_COOKIES)
-        UPLOAD = str(_E.UPLOAD)
-        BATCH_EXEC = f"{prefix}/_/BardChatUi/data/batchexecute"
-
-    for mod in (_client, _gat, _rot):
-        mod.Endpoint = _EndpointShim
-    _current = n
+    """Point the current request (asyncio task) at Google account `index` (None = u/0)."""
+    _account.set(None if index is None or str(index) == "" else str(index))
 
 
 def current() -> str | None:
-    """The account index the endpoints point at now."""
-    return _current
+    """The account index the current request talks to."""
+    return _account.get()
 
 
 def install_full_jar(jar_getter) -> None:
