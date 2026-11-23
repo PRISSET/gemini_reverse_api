@@ -28,7 +28,12 @@ from .config import CFG
 
 log = logging.getLogger("browser")
 
-CDP = f"http://127.0.0.1:{int(os.environ.get('GEMINI_CDP_PORT', '9334'))}"
+DEFAULT_PORT = int(os.environ.get("GEMINI_CDP_PORT", "9334"))
+
+
+def _cdp_url(port: int) -> str:
+    """One Chrome per account: each listens on its own CDP port."""
+    return f"http://127.0.0.1:{port or DEFAULT_PORT}"
 # The account's model list, captured where batchexecute works (gemini-proxy-lab, models.json):
 # Google does not hand it out on this IP, and the ids are stable.
 MODELS_FILE = Path(os.environ.get("GEMINI_MODELS_FILE", "/opt/gemini-proxy/models.json"))
@@ -41,8 +46,8 @@ class BrowserUnavailable(APIError):
 
 
 # ------------------------------------------------------------------------------ CDP
-def _json(path: str, method: str = "GET"):
-    req = urllib.request.Request(CDP + path, method=method)
+def _json(path: str, method: str = "GET", port: int = 0):
+    req = urllib.request.Request(_cdp_url(port) + path, method=method)
     with urllib.request.urlopen(req, timeout=10) as r:  # noqa: S310 (localhost only)
         return json.load(r)
 
@@ -60,10 +65,10 @@ async def _cdp(ws_url: str, method: str, params: dict | None = None,
             return msg.get("result") or {}
 
 
-async def browser_cookies() -> list[dict]:
+async def browser_cookies(port: int = 0) -> list[dict]:
     """Every google.com cookie the browser holds (name, value, domain, path)."""
     try:
-        version = await asyncio.to_thread(_json, "/json/version")
+        version = await asyncio.to_thread(_json, "/json/version", "GET", port)
     except Exception as e:  # noqa: BLE001
         raise BrowserUnavailable(f"browser is not running ({e})") from e
     r = await _cdp(version["webSocketDebuggerUrl"], "Storage.getCookies")
@@ -84,18 +89,18 @@ _WIZ = ("JSON.stringify(window.WIZ_global_data ? {a: WIZ_global_data.SNlM0e, "
         "p: WIZ_global_data.qKIAYe, e: WIZ_global_data.oPEP7c} : {})")
 
 
-def _close(target_id: str) -> None:
-    urllib.request.urlopen(f"{CDP}/json/close/{target_id}", timeout=10).read()  # noqa: S310
+def _close(target_id: str, port: int = 0) -> None:
+    urllib.request.urlopen(f"{_cdp_url(port)}/json/close/{target_id}", timeout=10).read()  # noqa: S310
 
 
-async def _fresh_tokens(n: str) -> dict:
+async def _fresh_tokens(n: str, port: int = 0) -> dict:
     """Open /u/N/app in a new background tab, read its tokens and account, close the tab.
 
     A fresh navigation each time: Google renumbers the accounts when one is added or
     signed out, so an old tab can show an account that is no longer u/N. A navigation
     passes Google's block where a fetch() of the same page does not.
     """
-    tab = await asyncio.to_thread(_json, f"/json/new?{ORIGIN}{_tab_path(n)}", "PUT")
+    tab = await asyncio.to_thread(_json, f"/json/new?{ORIGIN}{_tab_path(n)}", "PUT", port)
     try:
         for _ in range(90):
             await asyncio.sleep(0.5)
@@ -110,17 +115,17 @@ async def _fresh_tokens(n: str) -> dict:
         raise AuthError(f"u/{n}: no signed-in Gemini page in the browser")
     finally:
         try:
-            await asyncio.to_thread(_close, tab["id"])
+            await asyncio.to_thread(_close, tab["id"], port)
         except OSError:
             pass
 
 
-async def locate(email: str, hint: str, tries: int = 4) -> tuple[str, dict]:
+async def locate(email: str, hint: str, port: int = 0, tries: int = 4) -> tuple[str, dict]:
     """The u/N that shows `email` now, with its tokens; `hint` (the last known N) first."""
     order = [hint] + [str(i) for i in range(tries) if str(i) != hint]
     seen = []
     for n in order:
-        w = await _fresh_tokens(n)
+        w = await _fresh_tokens(n, port)
         got = (w.get("e") or "").lower()
         if not email or got == email.lower():
             return n, w
@@ -130,16 +135,17 @@ async def locate(email: str, hint: str, tries: int = 4) -> tuple[str, dict]:
     raise AuthError(f"{email} is not signed in in the browser")
 
 
-async def connect(client, hint: str, timeout: float, email: str = "") -> str:  # noqa: ANN001
+async def connect(client, hint: str, timeout: float, email: str = "",  # noqa: ANN001
+                  port: int = 0) -> str:  # noqa: ANN001
     """Make `client` ready from the browser without GeminiClient.init(); returns the u/N.
 
     init() fetches the /app page and Google answers it with /sorry for this IP; the tab's
     token plus the browser's cookie jar work for StreamGenerate and batchexecute. The
     account is found by e-mail, not by a fixed index: Google renumbers them.
     """
-    n, w = await locate(email, hint)
+    n, w = await locate(email, hint, port)
     session = AsyncSession(impersonate="chrome", proxy=CFG.proxy or None, timeout=timeout)
-    for c in await browser_cookies():
+    for c in await browser_cookies(port):
         session.cookies.set(c["name"], c["value"], domain=c["domain"], path=c.get("path") or "/")
     client.client = session
     client.access_token = w["a"]

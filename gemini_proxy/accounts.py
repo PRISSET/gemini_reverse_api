@@ -29,6 +29,8 @@ class Account:
     # The N of gemini.google.com/u/N/app — which of the signed-in accounts this is.
     authuser: str = ""
     email: str = ""
+    # The Chrome (CDP port) that holds this account's session; 0 = the default browser.
+    cdp: int = 0
     label: str = ""
     cookies: dict[str, str] = field(default_factory=dict)
     updated_at: str = ""
@@ -80,6 +82,7 @@ def load() -> list[Account]:
             id=str(item.get("id") or f"a{i + 1}"),
             authuser=str(item.get("authuser") or ""),
             email=str(item.get("email") or ""),
+            cdp=int(item.get("cdp") or 0),
             label=str(item.get("label") or ""),
             cookies={str(k): str(v) for k, v in cookies.items()},
             updated_at=str(item.get("updatedAt") or ""),
@@ -93,7 +96,7 @@ def save(accounts: list[Account]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     body = {"accounts": [
         {"id": a.id, "authuser": a.authuser, "email": a.email, "label": a.label,
-         "cookies": a.cookies, "updatedAt": a.updated_at}
+         "cookies": a.cookies, "updatedAt": a.updated_at, **({"cdp": a.cdp} if a.cdp else {})}
         for a in accounts
     ]}
     tmp = path.with_suffix(path.suffix + f".tmp-{os.getpid()}")

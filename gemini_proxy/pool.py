@@ -158,7 +158,7 @@ class Pool:
             # Google blocks the /app page and the RPCs for scripts on this IP: the token
             # comes from the browser tab, the answers still go direct.
             n = await browser.connect(client, slot.authuser or str(account.authuser or "0"),
-                                      CFG.timeout, account.email)
+                                      CFG.timeout, account.email, account.cdp)
             if n != str(account.authuser or "0"):
                 log.info("account %s is u/%s in the browser now", slot.key, n)
             slot.authuser = n
