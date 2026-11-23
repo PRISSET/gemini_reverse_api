@@ -77,6 +77,10 @@ async def chat_completions(request: Request) -> JSONResponse | StreamingResponse
 
     model = str(body.get("model") or CFG.default_model)
     prompt = openai.to_prompt(messages)
+    try:
+        files = openai.to_files(messages)
+    except ValueError as e:
+        return JSONResponse(openai.to_error(str(e), "invalid_request_error"), status_code=400)
     stream = bool(body.get("stream"))
     # The bearer may name a group: the bot writes posts on the paid account, the site chat
     # answers on the free one.
@@ -84,7 +88,7 @@ async def chat_completions(request: Request) -> JSONResponse | StreamingResponse
 
     if not stream:
         try:
-            text, slot = await POOL.generate(prompt, model, group)
+            text, slot = await POOL.generate(prompt, model, group, files)
         except Exception as e:  # noqa: BLE001
             log.warning("no answer: %s", e)
             return JSONResponse(openai.to_error(str(e)), status_code=502)
@@ -93,7 +97,7 @@ async def chat_completions(request: Request) -> JSONResponse | StreamingResponse
 
     async def events():
         try:
-            async for delta, slot in POOL.generate_stream(prompt, model, group):
+            async for delta, slot in POOL.generate_stream(prompt, model, group, files):
                 yield f"data: {json.dumps(openai.to_delta(delta, model), ensure_ascii=False)}\n\n"
                 await asyncio.sleep(0)
         except Exception as e:  # noqa: BLE001

@@ -204,3 +204,41 @@ def test_a_label_names_a_group(monkeypatch):
     assert [s.account.id for s in pool.pick("chat")] == ["a2"]
     # an unknown or removed account falls back to the whole pool
     assert [s.account.id for s in pool.pick("nope")] == ["a1", "a2"]
+
+
+def test_images_come_out_of_data_urls():
+    import base64
+    png = b"\x89PNG\r\n\x1a\nfake"
+    url = "data:image/png;base64," + base64.b64encode(png).decode()
+    messages = [{"role": "user", "content": [
+        {"type": "text", "text": "опиши"},
+        {"type": "image_url", "image_url": {"url": url}},
+    ]}]
+    assert openai.to_files(messages) == [png]
+    assert openai.to_prompt(messages) == "опиши"
+
+
+def test_a_remote_image_url_is_refused():
+    messages = [{"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
+    ]}]
+    with pytest.raises(ValueError):
+        openai.to_files(messages)
+
+
+def test_the_pool_passes_the_images_on(monkeypatch):
+    import gemini_proxy.pool as pool_mod
+    seen = {}
+
+    class Client(FakeClient):
+        async def generate_content(self, prompt, model=None, files=None, **kwargs):
+            seen["files"] = files
+            return await super().generate_content(prompt, model=model)
+
+    monkeypatch.setattr(pool_mod, "GeminiClient", Client)
+    pool = Pool()
+    account = accounts_mod.Account(id="a1", authuser="0", email="a@x",
+                                   cookies={"__Secure-1PSID": "x", "__Secure-1PSIDTS": "y"})
+    pool.reload = lambda: pool._slots.__setitem__(slice(None), [Slot(account=account)])
+    asyncio.run(pool.generate("вопрос", "gemini-flash", files=[b"img"]))
+    assert len(seen["files"]) == 1

@@ -7,10 +7,13 @@ session is stale. A 429 (the account ran out of quota) moves on to the next acco
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import tempfile
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from pathlib import Path
+from typing import Any, Iterator
 
 from gemini_webapi import GeminiClient
 from gemini_webapi.exceptions import (
@@ -24,9 +27,25 @@ from gemini_webapi.exceptions import (
 from . import accounts as accounts_mod
 from . import authuser
 from . import browser
+from .openai import file_name
 from .config import CFG
 
 log = logging.getLogger("pool")
+
+
+@contextlib.contextmanager
+def _staged(files: list[bytes] | None) -> Iterator[list[Path] | None]:
+    """The pictures as temp files with a proper extension: the web app types an upload by its name."""
+    if not files:
+        yield None
+        return
+    with tempfile.TemporaryDirectory(prefix="gemini-proxy-") as tmp:
+        paths = []
+        for i, data in enumerate(files):
+            path = Path(tmp) / file_name(data, i)
+            path.write_bytes(data)
+            paths.append(path)
+        yield paths
 
 
 def _window(data: dict | None) -> dict | None:
@@ -276,7 +295,7 @@ class Pool:
         return slots
 
     async def generate(self, prompt: str, model: str | None = None,
-                        bearer: str = "pool") -> tuple[str, Slot]:
+                        bearer: str = "pool", files: list[bytes] | None = None) -> tuple[str, Slot]:
         """One answer. Tries the accounts in turn; raises the last error if none answered."""
         last: Exception | None = None
         for slot in self._ordered(bearer)[: max(1, CFG.max_retries)]:
@@ -284,7 +303,10 @@ class Pool:
                 try:
                     client = await self._client_for(slot)
                     authuser.apply_authuser(slot.authuser or slot.account.authuser)
-                    out = await client.generate_content(prompt, model=self._picked(slot, model))
+                    with _staged(files) as paths:
+                        out = await client.generate_content(
+                            prompt, files=paths, model=self._picked(slot, model)
+                        )
                     text = getattr(out, "text", "") or ""
                     if not text.strip():
                         raise APIError("empty answer")
@@ -319,7 +341,7 @@ class Pool:
         raise last if last else APIError("no Google account answered")
 
     async def generate_stream(self, prompt: str, model: str | None = None,
-                               bearer: str = "pool"):
+                               bearer: str = "pool", files: list[bytes] | None = None):
         """The answer as it comes. Yields (text_delta, slot)."""
         last: Exception | None = None
         for slot in self._ordered(bearer)[: max(1, CFG.max_retries)]:
@@ -328,13 +350,14 @@ class Pool:
                 try:
                     client = await self._client_for(slot)
                     authuser.apply_authuser(slot.authuser or slot.account.authuser)
-                    async for out in client.generate_content_stream(
-                        prompt, model=self._picked(slot, model)
-                    ):
-                        delta = getattr(out, "text_delta", "") or ""
-                        if delta:
-                            started = True
-                            yield delta, slot
+                    with _staged(files) as paths:
+                        async for out in client.generate_content_stream(
+                            prompt, files=paths, model=self._picked(slot, model)
+                        ):
+                            delta = getattr(out, "text_delta", "") or ""
+                            if delta:
+                                started = True
+                                yield delta, slot
                     slot.last_ok = time.time()
                     slot.last_error = ""
                     slot.last_error_at = 0.0
