@@ -68,6 +68,8 @@ class Slot:
     guest: bool = False
     # When the cookie jar was last taken from the browser (0 = not from the browser).
     cookies_at: float = 0.0
+    # The u/N where the browser shows this account now (Google renumbers them).
+    authuser: str = ""
     # One request at a time per account: the web session keeps a conversation state, and
     # two parallel calls on one account mix them up.
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -155,8 +157,12 @@ class Pool:
         try:
             # Google blocks the /app page and the RPCs for scripts on this IP: the token
             # comes from the browser tab, the answers still go direct.
-            await browser.connect(client, str(account.authuser or "0"), CFG.timeout,
-                                  account.email)
+            n = await browser.connect(client, slot.authuser or str(account.authuser or "0"),
+                                      CFG.timeout, account.email)
+            if n != str(account.authuser or "0"):
+                log.info("account %s is u/%s in the browser now", slot.key, n)
+            slot.authuser = n
+            authuser.apply_authuser(n)
             slot.cookies_at = time.time()
         except Exception as e:  # noqa: BLE001
             log.warning("browser session for %s unavailable (%s), direct init", slot.key, e)
@@ -275,7 +281,7 @@ class Pool:
             async with slot.lock:
                 try:
                     client = await self._client_for(slot)
-                    authuser.apply_authuser(slot.account.authuser)
+                    authuser.apply_authuser(slot.authuser or slot.account.authuser)
                     out = await client.generate_content(prompt, model=self._picked(slot, model))
                     text = getattr(out, "text", "") or ""
                     if not text.strip():
@@ -319,7 +325,7 @@ class Pool:
                 started = False
                 try:
                     client = await self._client_for(slot)
-                    authuser.apply_authuser(slot.account.authuser)
+                    authuser.apply_authuser(slot.authuser or slot.account.authuser)
                     async for out in client.generate_content_stream(
                         prompt, model=self._picked(slot, model)
                     ):

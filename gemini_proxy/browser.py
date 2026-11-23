@@ -79,55 +79,65 @@ def _tab_path(n: str) -> str:
     return "/app" if n == "0" else f"/u/{n}/app"
 
 
-async def _account_tab(n: str) -> str:
-    """The debugger URL of a tab showing account u/N; navigates a new one when missing.
-
-    A page navigation passes Google's block where a fetch() of the same page does not.
-    """
-    tabs = await asyncio.to_thread(_json, "/json/list")
-    want = (ORIGIN + "/app", ORIGIN + "/u/0/app") if n == "0" else (ORIGIN + f"/u/{n}/",)
-    for tab in tabs:
-        if tab.get("type") == "page" and tab.get("url", "").startswith(want):
-            return tab["webSocketDebuggerUrl"]
-    log.info("opening a tab for u/%s", n)
-    tab = await asyncio.to_thread(_json, f"/json/new?{ORIGIN}{_tab_path(n)}", "PUT")
-    return tab["webSocketDebuggerUrl"]
-
-
 _WIZ = ("JSON.stringify(window.WIZ_global_data ? {a: WIZ_global_data.SNlM0e, "
         "b: WIZ_global_data.cfb2h, s: WIZ_global_data.FdrFJe, l: WIZ_global_data.TuX5cc, "
         "p: WIZ_global_data.qKIAYe, e: WIZ_global_data.oPEP7c} : {})")
 
 
-async def page_tokens(n: str) -> dict:
-    """SNlM0e and friends from the loaded tab of account u/N (waits up to ~30 s for it)."""
-    ws = await _account_tab(n)
-    for _ in range(60):
-        try:
-            r = await _cdp(ws, "Runtime.evaluate", {"expression": _WIZ, "returnByValue": True}, 5)
-            w = json.loads((r.get("result") or {}).get("value") or "{}")
+def _close(target_id: str) -> None:
+    urllib.request.urlopen(f"{CDP}/json/close/{target_id}", timeout=10).read()  # noqa: S310
+
+
+async def _fresh_tokens(n: str) -> dict:
+    """Open /u/N/app in a new background tab, read its tokens and account, close the tab.
+
+    A fresh navigation each time: Google renumbers the accounts when one is added or
+    signed out, so an old tab can show an account that is no longer u/N. A navigation
+    passes Google's block where a fetch() of the same page does not.
+    """
+    tab = await asyncio.to_thread(_json, f"/json/new?{ORIGIN}{_tab_path(n)}", "PUT")
+    try:
+        for _ in range(90):
+            await asyncio.sleep(0.5)
+            try:
+                r = await _cdp(tab["webSocketDebuggerUrl"], "Runtime.evaluate",
+                               {"expression": _WIZ, "returnByValue": True}, 5)
+                w = json.loads((r.get("result") or {}).get("value") or "{}")
+            except (APIError, OSError, asyncio.TimeoutError, websockets.WebSocketException):
+                continue
             if w.get("a"):
                 return w
-        except (APIError, OSError, asyncio.TimeoutError, websockets.WebSocketException):
+        raise AuthError(f"u/{n}: no signed-in Gemini page in the browser")
+    finally:
+        try:
+            await asyncio.to_thread(_close, tab["id"])
+        except OSError:
             pass
-        await asyncio.sleep(0.5)
-    raise AuthError(f"u/{n}: the tab has no signed-in Gemini page")
 
 
-async def connect(client, n: str, timeout: float, email: str = "") -> None:  # noqa: ANN001
-    """Make `client` ready from the browser without GeminiClient.init().
+async def locate(email: str, hint: str, tries: int = 4) -> tuple[str, dict]:
+    """The u/N that shows `email` now, with its tokens; `hint` (the last known N) first."""
+    order = [hint] + [str(i) for i in range(tries) if str(i) != hint]
+    seen = []
+    for n in order:
+        w = await _fresh_tokens(n)
+        got = (w.get("e") or "").lower()
+        if not email or got == email.lower():
+            return n, w
+        seen.append(got)
+        if got in seen[:-1]:
+            break  # Google sends unknown indexes to the default account: nothing further
+    raise AuthError(f"{email} is not signed in in the browser")
 
-    init() fetches the /app page and runs batchexecute RPCs, and Google answers both with
-    /sorry for this IP. The answers (StreamGenerate) pass, so the client gets the browser's
-    token and cookie jar and talks to StreamGenerate directly; batchexecute calls made along
-    the way (activity sync) fail quietly as before. No model list: the account default runs.
+
+async def connect(client, hint: str, timeout: float, email: str = "") -> str:  # noqa: ANN001
+    """Make `client` ready from the browser without GeminiClient.init(); returns the u/N.
+
+    init() fetches the /app page and Google answers it with /sorry for this IP; the tab's
+    token plus the browser's cookie jar work for StreamGenerate and batchexecute. The
+    account is found by e-mail, not by a fixed index: Google renumbers them.
     """
-    w = await page_tokens(n)
-    # Without account u/N in the browser, Google sends /u/N/app to u/0: that token belongs
-    # to another account, and the slot would silently answer (and spend) as that one.
-    got = (w.get("e") or "").lower()
-    if email and got and got != email.lower():
-        raise AuthError(f"u/{n} is not signed in in the browser: its tab shows another account")
+    n, w = await locate(email, hint)
     session = AsyncSession(impersonate="chrome", proxy=CFG.proxy or None, timeout=timeout)
     for c in await browser_cookies():
         session.cookies.set(c["name"], c["value"], domain=c["domain"], path=c.get("path") or "/")
@@ -143,6 +153,7 @@ async def connect(client, n: str, timeout: float, email: str = "") -> None:  # n
     client._reqid = random.randint(10000, 99999)  # noqa: S311, SLF001
     client._running = True  # noqa: SLF001
     _load_models(client)
+    return n
 
     # A blocked batchexecute (activity sync around every answer) would close the client,
     # and the library would then re-init it the direct way - as a guest. Keep it open.

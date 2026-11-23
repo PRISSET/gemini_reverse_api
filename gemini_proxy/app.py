@@ -173,7 +173,7 @@ def _account_view(slot) -> dict:
     quota = slot.quota or {}
     return {
         "id": account_id_of(account),
-        "slot": f"u/{account.authuser or '0'}",
+        "slot": f"u/{slot.authuser or account.authuser or '0'}",
         "label": account.label,
         "email": account.email,
         "masked": _mask(account.email),
