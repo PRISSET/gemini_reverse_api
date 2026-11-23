@@ -14,6 +14,7 @@ Environment=GEMINI_LOG_DIR=/var/log/gemini
 # The service already runs as the browser's user: no runuser needed.
 Environment=GEMINI_BROWSER_USER=
 Environment=GEMINI_PARK=1
+ExecStartPre=+/usr/bin/chown -R gemlogin: /opt/gemini-proxy/profile
 ExecStart=/usr/bin/node /opt/gemini-proxy/gemacc.mjs browser
 Restart=always
 RestartSec=10
