@@ -202,4 +202,5 @@ def test_a_label_names_a_group(monkeypatch):
     assert [s.account.id for s in pool.pick("pool")] == ["a1", "a2"]
     assert [s.account.id for s in pool.pick("pro")] == ["a1"]
     assert [s.account.id for s in pool.pick("chat")] == ["a2"]
-    assert pool.pick("nope") == []
+    # an unknown or removed account falls back to the whole pool
+    assert [s.account.id for s in pool.pick("nope")] == ["a1", "a2"]
